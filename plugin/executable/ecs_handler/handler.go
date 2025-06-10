@@ -51,6 +51,7 @@ type Args struct {
 	Preset  string `yaml:"preset"`
 	Mask4   int    `yaml:"mask4"`
 	Mask6   int    `yaml:"mask6"`
+	Remove  bool   `yaml:"remove"` // 新增：删除 ECS 选项
 }
 
 type ECSHandler struct {
@@ -94,7 +95,7 @@ func Init(_ *coremain.BP, args any) (any, error) {
 
 // Exec tries to append ECS to qCtx.Q().
 func (e *ECSHandler) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
-	forwarded := e.addECS(qCtx)
+	forwarded := e.processECS(qCtx)
 	err := next.ExecNext(ctx, qCtx)
 	if err != nil {
 		return err
@@ -116,7 +117,27 @@ func (e *ECSHandler) Exec(ctx context.Context, qCtx *query_context.Context, next
 	return nil
 }
 
-// AddECS adds a *dns.EDNS0_SUBNET record to q.
+// processECS 处理 ECS：可以添加或删除
+func (e *ECSHandler) processECS(qCtx *query_context.Context) (forwarded bool) {
+	queryOpt := qCtx.QOpt()
+	
+	// 如果设置了 remove，删除所有 ECS
+	if e.args.Remove {
+		newOptions := make([]dns.EDNS0, 0, len(queryOpt.Option))
+		for _, o := range queryOpt.Option {
+			if o.Option() != dns.EDNS0SUBNET {
+				newOptions = append(newOptions, o)
+			}
+		}
+		queryOpt.Option = newOptions
+		return false
+	}
+	
+	// 以下是原有的添加 ECS 逻辑
+	return e.addECS(qCtx)
+}
+
+// addECS adds a *dns.EDNS0_SUBNET record to q.
 func (e *ECSHandler) addECS(qCtx *query_context.Context) (forwarded bool) {
 	queryOpt := qCtx.QOpt()
 	// Check if query already has an ecs.
